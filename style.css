@@ -1,0 +1,144 @@
+/* ═══════════════════════════════════════════
+   STOXLY — data.js
+   All Indian stock demo data lives here.
+   Add or edit stocks in the STOCKS object.
+   ═══════════════════════════════════════════ */
+
+const STOCKS = {
+
+  RELIANCE: {
+    name:       'Reliance Industries',
+    price:      2456.75,
+    change:     45.3,
+    changePct:  1.88,
+    signal:     'BUY',
+    confidence: 78,
+    risk:       'Medium',
+    rsi:        42,
+    rsiLabel:   'Oversold',
+    macd:       'Bullish',
+    macdLabel:  'Strong',
+    ma:         'Uptrend',
+    maLabel:    'Positive',
+    why: [
+      '<b>RSI is at 42</b>, indicating the stock may be undervalued and could bounce back soon.',
+      '<b>MACD shows bullish momentum</b>, suggesting upward price movement in the near term.',
+      '<b>Moving averages indicate an uptrend</b>, which is a positive signal for buyers.'
+    ],
+    news: [
+      { title: 'Reliance reports strong Q4 earnings',       time: '2h ago' },
+      { title: 'New green energy product launch announced', time: '5h ago' },
+      { title: 'Market outlook remains positive',           time: '1d ago' }
+    ],
+    chart: { '1M': [2360, 2390, 2415, 2456], '3M': [2200, 2175, 2220, 2310, 2410, 2456], '6M': [2050, 2100, 2060, 2150, 2220, 2310, 2370, 2400, 2420, 2435, 2450, 2456] }
+  },
+
+  TCS: {
+    name:       'Tata Consultancy Services',
+    price:      3245.20,
+    change:     -15.8,
+    changePct:  -0.48,
+    signal:     'HOLD',
+    confidence: 62,
+    risk:       'Low',
+    rsi:        55,
+    rsiLabel:   'Neutral',
+    macd:       'Neutral',
+    macdLabel:  'Moderate',
+    ma:         'Sideways',
+    maLabel:    'Stable',
+    why: [
+      '<b>RSI at 55</b> indicates balanced momentum — neither overbought nor oversold.',
+      '<b>MACD shows neutral momentum</b>, suggesting no strong directional bias currently.',
+      '<b>Price consolidating above 200-day MA</b> — wait for a clear breakout before entering.'
+    ],
+    news: [
+      { title: 'TCS wins ₹1200 Cr government IT deal', time: '1h ago' },
+      { title: 'Q3 results broadly in line with estimates', time: '8h ago' },
+      { title: 'Hiring outlook cautious for FY26',          time: '2d ago' }
+    ],
+    chart: { '1M': [3300, 3270, 3255, 3245], '3M': [3320, 3280, 3260, 3290, 3265, 3245], '6M': [3400, 3380, 3350, 3310, 3280, 3260, 3290, 3300, 3280, 3265, 3252, 3245] }
+  },
+
+  INFY: {
+    name:       'Infosys Limited',
+    price:      1567.40,
+    change:     22.6,
+    changePct:  1.46,
+    signal:     'BUY',
+    confidence: 71,
+    risk:       'Low',
+    rsi:        48,
+    rsiLabel:   'Neutral',
+    macd:       'Bullish',
+    macdLabel:  'Moderate',
+    ma:         'Uptrend',
+    maLabel:    'Positive',
+    why: [
+      '<b>RSI at 48</b> — room to run before approaching overbought levels.',
+      '<b>MACD turned bullish</b> recently, signaling accumulation by institutional investors.',
+      '<b>Golden Cross pattern forming</b> — 50-day MA crossing above 200-day MA.'
+    ],
+    news: [
+      { title: 'Infosys raises FY26 revenue guidance',       time: '3h ago' },
+      { title: 'New AI platform partnership announced',      time: '6h ago' },
+      { title: 'Management confident on demand recovery',    time: '1d ago' }
+    ],
+    chart: { '1M': [1520, 1540, 1558, 1567], '3M': [1490, 1498, 1530, 1540, 1558, 1567], '6M': [1400, 1430, 1410, 1460, 1490, 1530, 1540, 1548, 1558, 1560, 1565, 1567] }
+  },
+
+  HDFC: {
+    name:       'HDFC Bank',
+    price:      1621.90,
+    change:     -8.3,
+    changePct:  -0.51,
+    signal:     'SELL',
+    confidence: 55,
+    risk:       'High',
+    rsi:        68,
+    rsiLabel:   'Overbought',
+    macd:       'Bearish',
+    macdLabel:  'Weak',
+    ma:         'Downtrend',
+    maLabel:    'Negative',
+    why: [
+      '<b>RSI at 68</b> approaching overbought territory — elevated reversal risk.',
+      '<b>MACD bearish crossover</b> confirmed, signaling downward momentum building.',
+      '<b>Price slipping below 20-day MA</b> — short-term weakness confirmed.'
+    ],
+    news: [
+      { title: 'RBI flags concerns over credit growth pace', time: '4h ago'  },
+      { title: 'NPA ratio rises marginally in Q3',           time: '12h ago' },
+      { title: 'Merger integration costs weigh on margins',  time: '2d ago'  }
+    ],
+    chart: { '1M': [1670, 1650, 1635, 1621], '3M': [1695, 1670, 1655, 1640, 1630, 1621], '6M': [1750, 1730, 1710, 1695, 1670, 1655, 1648, 1640, 1635, 1628, 1624, 1621] }
+  },
+
+  SBI: {
+    name:       'State Bank of India',
+    price:      782.45,
+    change:     12.1,
+    changePct:  1.57,
+    signal:     'BUY',
+    confidence: 74,
+    risk:       'Medium',
+    rsi:        44,
+    rsiLabel:   'Oversold',
+    macd:       'Bullish',
+    macdLabel:  'Strong',
+    ma:         'Uptrend',
+    maLabel:    'Positive',
+    why: [
+      '<b>RSI at 44</b> — SBI is in oversold territory, historically a strong entry zone.',
+      '<b>Strong MACD bullish signal</b> supported by heavy institutional buying activity.',
+      '<b>Uptrend intact</b> — price consistently holding above the 200-day moving average.'
+    ],
+    news: [
+      { title: 'SBI reports record quarterly net profit',   time: '30m ago' },
+      { title: 'Loan book grows 15% year-over-year',        time: '4h ago'  },
+      { title: 'Government may increase stake — reports',   time: '1d ago'  }
+    ],
+    chart: { '1M': [758, 768, 777, 782], '3M': [730, 740, 752, 762, 775, 782], '6M': [680, 700, 695, 720, 735, 750, 762, 768, 774, 778, 780, 782] }
+  }
+
+};
