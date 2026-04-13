@@ -1,225 +1,824 @@
-/* ═══════════════════════════════════════════
-   STOXLY — app.js
-   All UI logic, navigation, chart rendering,
-   watchlist management and interactions.
-   ═══════════════════════════════════════════ */
-
-/* ── State ───────────────────────────────── */
-let currentStock = 'RELIANCE';
-let currentTF    = '3M';
-let watchlist    = ['RELIANCE', 'TCS', 'INFY', 'HDFC'];
-let chartInstance = null;
-
-/* ── DOM References ──────────────────────── */
-const homeSearchInput = document.getElementById('homeSearch');
-const analyzeBtn      = document.getElementById('analyzeBtn');
-const loaderOverlay   = document.getElementById('loader');
-const toastEl         = document.getElementById('toast');
-const starBtn         = document.getElementById('starBtn');
-
-/* ════════════════════════════════════════════
-   NAVIGATION
-   ════════════════════════════════════════════ */
-
-/**
- * Switch to a named page and highlight the correct nav button.
- * @param {string} pageName  - 'home' | 'analyze' | 'watchlist' | 'profile'
- */
-function goPage(pageName) {
-  // Hide all pages
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  // Deactivate all nav items
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-
-  // Show target page
-  document.getElementById('page-' + pageName).classList.add('active');
-  // Activate matching nav button
-  document.getElementById('nav-' + pageName).classList.add('active');
-
-  // Side effects per page
-  if (pageName === 'watchlist') renderWatchlist();
-  if (pageName === 'profile')   syncProfileStats();
-  if (pageName === 'analyze')   renderAnalyze(currentStock);
-}
-
-// Wire up nav buttons
-document.querySelectorAll('.nav-item').forEach(btn => {
-  btn.addEventListener('click', () => goPage(btn.dataset.page));
-});
-
-/* ════════════════════════════════════════════
-   HOME PAGE
-   ════════════════════════════════════════════ */
-
-// Enable/disable Analyze button based on input
-homeSearchInput.addEventListener('input', () => {
-  const hasValue = homeSearchInput.value.trim().length > 0;
-  analyzeBtn.classList.toggle('ready', hasValue);
-});
-
-// Timeframe selector
-document.querySelectorAll('.tf-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentTF = btn.dataset.tf;
-    // If on analyze page, redraw chart with new timeframe
-    if (document.getElementById('page-analyze').classList.contains('active')) {
-      drawChart(currentStock);
-    }
-  });
-});
-
-// Quick-search chips
-document.querySelectorAll('.chip').forEach(chip => {
-  chip.addEventListener('click', () => {
-    homeSearchInput.value = chip.dataset.sym;
-    analyzeBtn.classList.add('ready');
-  });
-});
-
-// Analyze button click
-analyzeBtn.addEventListener('click', runAnalysis);
-
-/**
- * Validate input, show loader, then switch to Analyze page.
- */
-function runAnalysis() {
-  const sym = homeSearchInput.value.trim().toUpperCase();
-
-  if (!sym) return;
-
-  if (!STOCKS[sym]) {
-    showToast('Not found. Try: RELIANCE, TCS, INFY, HDFC, SBI');
-    return;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stoxly</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --card: #111827;
+    --card2: #0f1623;
+    --border: #1e2940;
+    --accent-green: #22c55e;
+    --accent-red: #ef4444;
+    --accent-orange: #f59e0b;
+    --text: #f1f5f9;
+    --muted: #64748b;
+    --nav-bg: #0d1220;
   }
 
-  showLoader();
-  setTimeout(() => {
-    hideLoader();
-    currentStock = sym;
-    goPage('analyze');
-  }, 1100);
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Sora', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+  }
+
+  .app {
+    width: 100%;
+    max-width: 680px;
+    min-height: 100vh;
+    position: relative;
+    background: var(--bg);
+    padding-bottom: 80px;
+  }
+
+  /* ── NAV ── */
+  .bottom-nav {
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    max-width: 680px;
+    background: var(--nav-bg);
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    padding: 12px 0 16px;
+    z-index: 100;
+  }
+  .nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 500;
+    transition: color .2s;
+    border: none; background: none;
+  }
+  .nav-item.active { color: var(--text); }
+  .nav-item svg { width: 22px; height: 22px; }
+
+  /* ── PAGES ── */
+  .page { display: none; padding: 32px 20px 16px; animation: fadeIn .25s ease; }
+  .page.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ── TYPOGRAPHY ── */
+  .page-title { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
+  .page-subtitle { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+
+  /* ── CARDS ── */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 14px;
+  }
+
+  /* ── HOME PAGE ── */
+  .home-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .home-logo { font-size: 28px; font-weight: 700; }
+  .home-logo span { color: var(--accent-green); }
+  .home-desc { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
+
+  .label { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 8px; letter-spacing: .5px; }
+
+  .search-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    margin-bottom: 22px;
+  }
+  .search-box input {
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family: 'Sora', sans-serif;
+    font-size: 14px;
+    width: 100%;
+  }
+  .search-box input::placeholder { color: var(--muted); }
+
+  .timeframe-group { display: flex; gap: 10px; margin-bottom: 22px; }
+  .tf-btn {
+    flex: 1;
+    padding: 13px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--muted);
+    font-family: 'Sora', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .tf-btn.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+  .analyze-btn {
+    width: 100%;
+    padding: 16px;
+    border-radius: 14px;
+    background: #1e2940;
+    color: var(--muted);
+    border: none;
+    font-family: 'Sora', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 24px;
+    transition: all .25s;
+  }
+  .analyze-btn.ready {
+    background: var(--accent-green);
+    color: #fff;
+  }
+
+  .recent-searches { display: flex; gap: 10px; flex-wrap: wrap; }
+  .chip {
+    padding: 8px 16px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color .2s, color .2s;
+    color: var(--text);
+  }
+  .chip:hover { border-color: var(--accent-green); color: var(--accent-green); }
+
+  /* ── ANALYZE PAGE ── */
+  .stock-header { margin-bottom: 20px; }
+  .stock-ticker { font-size: 20px; font-weight: 700; }
+  .stock-price-row { display: flex; align-items: baseline; gap: 12px; margin-top: 4px; }
+  .stock-price { font-size: 28px; font-weight: 700; }
+  .price-change { font-size: 14px; font-weight: 600; }
+  .price-change.up { color: var(--accent-green); }
+  .price-change.down { color: var(--accent-red); }
+  .watchlist-star {
+    margin-left: auto;
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: background .2s;
+    flex-shrink: 0;
+  }
+  .watchlist-star:hover { background: #1e2940; }
+  .watchlist-star.starred svg path { fill: #facc15; stroke: #facc15; }
+
+  /* Chart */
+  .chart-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 14px;
+    position: relative;
+  }
+  canvas#stockChart { width: 100% !important; }
+
+  /* Indicators */
+  .indicators-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .indicator-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+  }
+  .ind-label { font-size: 10px; color: var(--muted); font-weight: 600; letter-spacing: .5px; margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
+  .ind-value { font-size: 20px; font-weight: 700; }
+  .ind-sub { font-size: 11px; margin-top: 3px; }
+  .green { color: var(--accent-green); }
+  .red { color: var(--accent-red); }
+  .orange { color: var(--accent-orange); }
+
+  /* BUY/SELL box */
+  .signal-box {
+    border-radius: 16px;
+    padding: 24px;
+    text-align: center;
+    margin-bottom: 14px;
+    border: 1px solid transparent;
+  }
+  .signal-box.buy { background: #0a2218; border-color: #16a34a; }
+  .signal-box.sell { background: #220a0a; border-color: #dc2626; }
+  .signal-box.hold { background: #1a1200; border-color: #ca8a04; }
+  .signal-word { font-size: 40px; font-weight: 800; margin-bottom: 12px; }
+  .signal-box.buy .signal-word { color: var(--accent-green); }
+  .signal-box.sell .signal-word { color: var(--accent-red); }
+  .signal-box.hold .signal-word { color: var(--accent-orange); }
+  .signal-meta { display: flex; justify-content: center; gap: 32px; font-size: 13px; color: var(--muted); }
+  .signal-meta-val { font-size: 15px; font-weight: 700; margin-top: 3px; color: var(--text); }
+  .signal-meta-val.risk-med { color: var(--accent-orange); }
+  .signal-meta-val.risk-low { color: var(--accent-green); }
+  .signal-meta-val.risk-high { color: var(--accent-red); }
+
+  /* Why section */
+  .why-card { margin-bottom: 14px; }
+  .why-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 14px; }
+  .why-point { display: flex; gap: 10px; margin-bottom: 10px; font-size: 13px; line-height: 1.55; }
+  .why-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-green); margin-top: 5px; flex-shrink: 0; }
+
+  /* News */
+  .news-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+  .news-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .news-item:last-child { border-bottom: none; }
+  .news-time { color: var(--muted); font-size: 11px; white-space: nowrap; margin-left: 12px; }
+
+  /* ── WATCHLIST ── */
+  .wl-item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px 20px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: border-color .2s;
+  }
+  .wl-item:hover { border-color: #2d3f60; }
+  .wl-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+  .wl-ticker { font-size: 16px; font-weight: 700; }
+  .wl-name { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .badge { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; }
+  .badge.buy { color: var(--accent-green); background: #0a2218; }
+  .badge.sell { color: var(--accent-red); background: #220a0a; }
+  .badge.hold { color: var(--accent-orange); background: #1a1200; }
+  .wl-bottom { display: flex; justify-content: space-between; align-items: center; }
+  .wl-price { font-size: 22px; font-weight: 700; }
+  .wl-change { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
+
+  /* ── PROFILE ── */
+  .profile-card { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+  .avatar { width: 60px; height: 60px; border-radius: 50%; background: var(--accent-green); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .profile-name { font-size: 18px; font-weight: 700; }
+  .profile-email { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; padding-top: 16px; border-top: 1px solid var(--border); margin-top: 4px; }
+  .stat-item { text-align: center; }
+  .stat-num { font-size: 22px; font-weight: 700; }
+  .stat-label { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  .menu-item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px 20px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+    transition: border-color .2s;
+  }
+  .menu-item:hover { border-color: #2d3f60; }
+  .menu-icon {
+    width: 40px; height: 40px;
+    background: #1e2940;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .menu-text { flex: 1; }
+  .menu-title { font-size: 15px; font-weight: 600; }
+  .menu-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .chevron { color: var(--muted); }
+
+  .logout-btn {
+    width: 100%;
+    padding: 18px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--accent-red);
+    font-family: 'Sora', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 4px;
+    transition: background .2s;
+  }
+  .logout-btn:hover { background: #1a0a0a; }
+
+  /* Scrollable analyze content */
+  #page-analyze { padding-top: 28px; }
+  .analyze-inner { padding: 0 20px; }
+  .analyze-top-row { display: flex; align-items: flex-start; margin-bottom: 18px; }
+  .analyze-top-row .stock-info { flex: 1; }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 96px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: #1e2940;
+    color: var(--text);
+    padding: 10px 20px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    opacity: 0;
+    transition: all .3s;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 200;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* Loader */
+  .loader-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(10,10,15,.8);
+    z-index: 300;
+    align-items: center; justify-content: center;
+    flex-direction: column; gap: 16px;
+  }
+  .loader-overlay.show { display: flex; }
+  .spinner {
+    width: 48px; height: 48px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent-green);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loader-text { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ═══════ HOME ═══════ -->
+  <div class="page active" id="page-home">
+    <div class="home-header">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M4 20L10 13L15 17L22 8" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 8H22V11" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="home-logo">Stox<span>ly</span></div>
+    </div>
+    <div class="home-desc">Get smart stock suggestions instantly</div>
+
+    <div class="label">Stock Symbol</div>
+    <div class="search-box">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input type="text" id="homeSearch" placeholder="Enter stock name (e.g., RELIANCE, TCS)" autocomplete="off">
+    </div>
+
+    <div class="label">Timeframe</div>
+    <div class="timeframe-group">
+      <button class="tf-btn" onclick="selectTF(this,'1M')">1 Month</button>
+      <button class="tf-btn active" onclick="selectTF(this,'3M')">3 Months</button>
+      <button class="tf-btn" onclick="selectTF(this,'6M')">6 Months</button>
+    </div>
+
+    <button class="analyze-btn" id="analyzeBtn" onclick="runAnalysis()">Analyze Stock</button>
+
+    <div class="label" style="display:flex;align-items:center;gap:6px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Recent Searches
+    </div>
+    <div class="recent-searches">
+      <span class="chip" onclick="quickSearch('RELIANCE')">RELIANCE</span>
+      <span class="chip" onclick="quickSearch('TCS')">TCS</span>
+      <span class="chip" onclick="quickSearch('INFY')">INFY</span>
+      <span class="chip" onclick="quickSearch('HDFC')">HDFC</span>
+      <span class="chip" onclick="quickSearch('SBI')">SBI</span>
+    </div>
+  </div>
+
+  <!-- ═══════ ANALYZE ═══════ -->
+  <div class="page" id="page-analyze">
+    <div class="analyze-inner">
+      <div class="analyze-top-row">
+        <div class="stock-info">
+          <div class="stock-ticker" id="analyzeTickerLabel">RELIANCE</div>
+          <div class="stock-price-row">
+            <div class="stock-price" id="analyzePriceLabel">₹2456.75</div>
+            <div class="price-change up" id="analyzePriceChange">▲ +45.3 (1.88%)</div>
+          </div>
+        </div>
+        <div class="watchlist-star" id="starBtn" onclick="toggleWatchlist()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </div>
+      </div>
+
+      <!-- Chart -->
+      <div class="chart-wrap">
+        <canvas id="stockChart" height="160"></canvas>
+      </div>
+
+      <!-- Indicators -->
+      <div class="indicators-grid">
+        <div class="indicator-card">
+          <div class="ind-label">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            RSI
+          </div>
+          <div class="ind-value" id="rsiVal">42</div>
+          <div class="ind-sub green" id="rsiLabel">Oversold</div>
+        </div>
+        <div class="indicator-card">
+          <div class="ind-label">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><rect x="3" y="4" width="4" height="16"/><rect x="10" y="8" width="4" height="12"/><rect x="17" y="2" width="4" height="20"/></svg>
+            MACD
+          </div>
+          <div class="ind-value" id="macdVal" style="font-size:16px">Bullish</div>
+          <div class="ind-sub green" id="macdLabel">Strong</div>
+        </div>
+        <div class="indicator-card">
+          <div class="ind-label">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/></svg>
+            MA
+          </div>
+          <div class="ind-value" id="maVal" style="font-size:16px">Uptrend</div>
+          <div class="ind-sub green" id="maLabel">Positive</div>
+        </div>
+      </div>
+
+      <!-- Signal -->
+      <div class="signal-box buy" id="signalBox">
+        <div class="signal-word" id="signalWord">BUY</div>
+        <div class="signal-meta">
+          <div>
+            <div>Confidence</div>
+            <div class="signal-meta-val" id="confVal">78%</div>
+          </div>
+          <div>
+            <div>Risk Level</div>
+            <div class="signal-meta-val risk-med" id="riskVal">Medium</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Why -->
+      <div class="card why-card">
+        <h3>Why this suggestion?</h3>
+        <div id="whyPoints"></div>
+      </div>
+
+      <!-- News -->
+      <div class="card news-card">
+        <h3>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          Recent News
+        </h3>
+        <div id="newsItems"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════ WATCHLIST ═══════ -->
+  <div class="page" id="page-watchlist">
+    <div class="page-title">Watchlist</div>
+    <div class="page-subtitle" id="wlSubtitle">4 stocks in your watchlist</div>
+    <div id="watchlistItems"></div>
+  </div>
+
+  <!-- ═══════ PROFILE ═══════ -->
+  <div class="page" id="page-profile">
+    <div class="page-title">Profile</div>
+    <div class="card">
+      <div class="profile-card">
+        <div class="avatar">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0a0a0f" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </div>
+        <div>
+          <div class="profile-name">Investor</div>
+          <div class="profile-email">investor@stoxly.com</div>
+        </div>
+      </div>
+      <div class="stats-row">
+        <div class="stat-item">
+          <div class="stat-num">12</div>
+          <div class="stat-label">Analyses</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num" id="wlCount">4</div>
+          <div class="stat-label">Watchlist</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num">78%</div>
+          <div class="stat-label">Accuracy</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="menu-item">
+      <div class="menu-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </div>
+      <div class="menu-text">
+        <div class="menu-title">Notifications</div>
+        <div class="menu-sub">Manage alerts and updates</div>
+      </div>
+      <div class="chevron">›</div>
+    </div>
+
+    <div class="menu-item">
+      <div class="menu-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </div>
+      <div class="menu-text">
+        <div class="menu-title">Settings</div>
+        <div class="menu-sub">App preferences</div>
+      </div>
+      <div class="chevron">›</div>
+    </div>
+
+    <div class="menu-item">
+      <div class="menu-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </div>
+      <div class="menu-text">
+        <div class="menu-title">Help & Support</div>
+        <div class="menu-sub">Get assistance</div>
+      </div>
+      <div class="chevron">›</div>
+    </div>
+
+    <button class="logout-btn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Log Out
+    </button>
+  </div>
+
+  <!-- Bottom Nav -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" onclick="goPage('home',this)" id="nav-home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9L12 2l9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      Home
+    </button>
+    <button class="nav-item" onclick="goPage('analyze',this)" id="nav-analyze">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+      Analyze
+    </button>
+    <button class="nav-item" onclick="goPage('watchlist',this)" id="nav-watchlist">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      Watchlist
+    </button>
+    <button class="nav-item" onclick="goPage('profile',this)" id="nav-profile">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Profile
+    </button>
+  </nav>
+</div>
+
+<!-- Toast & Loader -->
+<div class="toast" id="toast"></div>
+<div class="loader-overlay" id="loader">
+  <div class="spinner"></div>
+  <div class="loader-text">Analyzing stock...</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// ─── DATA ───────────────────────────────────────────────────────────────────
+const STOCKS = {
+  RELIANCE: {
+    name: 'Reliance Industries', price: 2456.75, change: 45.3, changePct: 1.88,
+    signal: 'BUY', confidence: 78, risk: 'Medium',
+    rsi: 42, rsiLabel: 'Oversold', macd: 'Bullish', macdLabel: 'Strong', ma: 'Uptrend', maLabel: 'Positive',
+    why: [
+      '<b>RSI is at 42</b>, indicating the stock may be undervalued and could bounce back soon.',
+      '<b>MACD shows bullish momentum</b>, suggesting upward price movement in the near term.',
+      '<b>Moving averages indicate an uptrend</b>, which is a positive signal for buyers.'
+    ],
+    news: [
+      { title: 'Company reports strong Q4 earnings', time: '2h ago' },
+      { title: 'New product launch announced', time: '5h ago' },
+      { title: 'Market outlook remains positive', time: '1d ago' },
+    ],
+    chart: [2200, 2175, 2140, 2165, 2220, 2280, 2310, 2360, 2400, 2435, 2456]
+  },
+  TCS: {
+    name: 'Tata Consultancy Services', price: 3245.20, change: -15.8, changePct: -0.48,
+    signal: 'HOLD', confidence: 62, risk: 'Low',
+    rsi: 55, rsiLabel: 'Neutral', macd: 'Neutral', macdLabel: 'Moderate', ma: 'Sideways', maLabel: 'Stable',
+    why: [
+      '<b>RSI at 55</b> indicates balanced momentum — neither overbought nor oversold.',
+      '<b>MACD shows neutral momentum</b>, suggesting no strong directional bias currently.',
+      '<b>Moving averages are flat</b>, confirming a consolidation phase before the next move.'
+    ],
+    news: [
+      { title: 'TCS wins ₹1200 Cr government IT deal', time: '1h ago' },
+      { title: 'Q3 results in line with estimates', time: '8h ago' },
+      { title: 'Hiring outlook cautious for FY26', time: '2d ago' },
+    ],
+    chart: [3310, 3290, 3260, 3240, 3270, 3290, 3300, 3280, 3265, 3250, 3245]
+  },
+  INFY: {
+    name: 'Infosys Limited', price: 1567.40, change: 22.6, changePct: 1.46,
+    signal: 'BUY', confidence: 71, risk: 'Low',
+    rsi: 48, rsiLabel: 'Neutral', macd: 'Bullish', macdLabel: 'Moderate', ma: 'Uptrend', maLabel: 'Positive',
+    why: [
+      '<b>RSI at 48</b> shows the stock has room to run before becoming overbought.',
+      '<b>MACD turned bullish</b> recently, signaling accumulation by smart money.',
+      '<b>50-day MA crossing above 200-day MA</b> is a classic golden cross pattern.'
+    ],
+    news: [
+      { title: 'Infosys raises FY26 revenue guidance', time: '3h ago' },
+      { title: 'New AI platform partnership announced', time: '6h ago' },
+      { title: 'Management confident on demand recovery', time: '1d ago' },
+    ],
+    chart: [1490, 1505, 1498, 1520, 1530, 1525, 1540, 1548, 1558, 1563, 1567]
+  },
+  HDFC: {
+    name: 'HDFC Bank', price: 1621.90, change: -8.3, changePct: -0.51,
+    signal: 'SELL', confidence: 55, risk: 'High',
+    rsi: 68, rsiLabel: 'Overbought', macd: 'Bearish', macdLabel: 'Weak', ma: 'Downtrend', maLabel: 'Negative',
+    why: [
+      '<b>RSI at 68</b> approaching overbought territory — reversal risk is elevated.',
+      '<b>MACD shows bearish crossover</b>, signaling downward momentum building.',
+      '<b>Price below 20-day MA</b>, confirming short-term weakness in the stock.'
+    ],
+    news: [
+      { title: 'RBI flags concerns over credit growth pace', time: '4h ago' },
+      { title: 'NPA ratio rises marginally in Q3', time: '12h ago' },
+      { title: 'Merger integration still underway', time: '2d ago' },
+    ],
+    chart: [1680, 1665, 1670, 1655, 1648, 1640, 1635, 1628, 1630, 1624, 1621]
+  },
+  SBI: {
+    name: 'State Bank of India', price: 782.45, change: 12.1, changePct: 1.57,
+    signal: 'BUY', confidence: 74, risk: 'Medium',
+    rsi: 44, rsiLabel: 'Oversold', macd: 'Bullish', macdLabel: 'Strong', ma: 'Uptrend', maLabel: 'Positive',
+    why: [
+      '<b>RSI at 44</b> — SBI is in oversold territory, historically a good entry zone.',
+      '<b>Strong MACD bullish signal</b> supported by heavy institutional buying.',
+      '<b>Uptrend intact</b> — price consistently holding above its 200-day moving average.'
+    ],
+    news: [
+      { title: 'SBI reports record quarterly net profit', time: '30m ago' },
+      { title: 'Loan book grows 15% year-over-year', time: '4h ago' },
+      { title: 'Government may increase stake — reports', time: '1d ago' },
+    ],
+    chart: [730, 725, 740, 750, 748, 760, 768, 772, 778, 780, 782]
+  }
+};
+
+let watchlist = ['RELIANCE','TCS','INFY','HDFC'];
+let currentStock = 'RELIANCE';
+let currentTF = '3M';
+let chartInstance = null;
+
+// ─── NAV ─────────────────────────────────────────────────────────────────────
+function goPage(name, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  el.classList.add('active');
+  if (name === 'watchlist') renderWatchlist();
+  if (name === 'profile') document.getElementById('wlCount').textContent = watchlist.length;
+  if (name === 'analyze' && currentStock) renderAnalyze(currentStock);
 }
 
-/* ════════════════════════════════════════════
-   ANALYZE PAGE
-   ════════════════════════════════════════════ */
+// ─── HOME ─────────────────────────────────────────────────────────────────────
+const homeSearch = document.getElementById('homeSearch');
+const analyzeBtn = document.getElementById('analyzeBtn');
 
-/**
- * Render the full Analyze page for a given stock symbol.
- * @param {string} sym - Stock ticker, e.g. 'RELIANCE'
- */
+homeSearch.addEventListener('input', () => {
+  const v = homeSearch.value.trim();
+  if (v.length > 0) {
+    analyzeBtn.classList.add('ready');
+  } else {
+    analyzeBtn.classList.remove('ready');
+  }
+});
+
+function selectTF(btn, tf) {
+  document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentTF = tf;
+}
+
+function quickSearch(symbol) {
+  homeSearch.value = symbol;
+  analyzeBtn.classList.add('ready');
+}
+
+function runAnalysis() {
+  const sym = homeSearch.value.trim().toUpperCase();
+  if (!sym) return;
+  const stock = STOCKS[sym];
+  if (!stock) { showToast('Stock not found. Try RELIANCE, TCS, INFY, HDFC or SBI'); return; }
+  
+  document.getElementById('loader').classList.add('show');
+  setTimeout(() => {
+    document.getElementById('loader').classList.remove('show');
+    currentStock = sym;
+    renderAnalyze(sym);
+    goPage('analyze', document.getElementById('nav-analyze'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('nav-analyze').classList.add('active');
+  }, 1200);
+}
+
+// ─── ANALYZE ──────────────────────────────────────────────────────────────────
 function renderAnalyze(sym) {
   const s = STOCKS[sym];
   if (!s) return;
   currentStock = sym;
 
-  const isUp = s.change >= 0;
-
-  // ── Header ──────────────────────────────
   document.getElementById('analyzeTickerLabel').textContent = sym;
-  document.getElementById('analyzePriceLabel').textContent  = '₹' + s.price.toFixed(2);
-
+  document.getElementById('analyzePriceLabel').textContent = '₹' + s.price.toFixed(2);
   const chEl = document.getElementById('analyzePriceChange');
-  chEl.textContent = (isUp ? '▲ +' : '▼ ') + Math.abs(s.change).toFixed(1) +
-                     ' (' + Math.abs(s.changePct).toFixed(2) + '%)';
-  chEl.className = 'price-change ' + (isUp ? 'up' : 'down');
+  chEl.textContent = (s.change >= 0 ? '▲ +' : '▼ ') + Math.abs(s.change).toFixed(1) + ' (' + Math.abs(s.changePct).toFixed(2) + '%)';
+  chEl.className = 'price-change ' + (s.change >= 0 ? 'up' : 'down');
 
-  // ── Star button ──────────────────────────
-  updateStarButton(sym);
+  // Star
+  const star = document.getElementById('starBtn');
+  const inWl = watchlist.includes(sym);
+  star.classList.toggle('starred', inWl);
+  star.querySelector('svg').setAttribute('stroke', inWl ? '#facc15' : '#94a3b8');
 
-  // ── RSI ─────────────────────────────────
-  document.getElementById('rsiVal').textContent   = s.rsi;
-  const rsiEl = document.getElementById('rsiLabel');
-  rsiEl.textContent = s.rsiLabel;
-  rsiEl.className   = 'ind-sub ' + sentimentColor(s.rsiLabel, 'rsi');
+  // RSI
+  document.getElementById('rsiVal').textContent = s.rsi;
+  const rsiLbl = document.getElementById('rsiLabel');
+  rsiLbl.textContent = s.rsiLabel;
+  rsiLbl.className = 'ind-sub ' + (s.rsiLabel === 'Overbought' ? 'red' : s.rsiLabel === 'Neutral' ? 'orange' : 'green');
 
-  // ── MACD ────────────────────────────────
-  const macdValEl = document.getElementById('macdVal');
-  macdValEl.textContent = s.macd;
-  macdValEl.className   = 'ind-value sm ' + sentimentColor(s.macd, 'signal');
+  // MACD
+  document.getElementById('macdVal').textContent = s.macd;
+  const macdV = document.getElementById('macdVal');
+  macdV.className = 'ind-value ' + (s.macd === 'Bearish' ? 'red' : s.macd === 'Neutral' ? 'orange' : 'green');
+  macdV.style.fontSize = '16px';
+  document.getElementById('macdLabel').textContent = s.macdLabel;
+  document.getElementById('macdLabel').className = 'ind-sub ' + (s.macdLabel === 'Weak' ? 'red' : s.macdLabel === 'Moderate' ? 'orange' : 'green');
 
-  const macdLblEl = document.getElementById('macdLabel');
-  macdLblEl.textContent = s.macdLabel;
-  macdLblEl.className   = 'ind-sub ' + sentimentColor(s.macdLabel, 'strength');
+  // MA
+  document.getElementById('maVal').textContent = s.ma;
+  const maV = document.getElementById('maVal');
+  maV.className = 'ind-value ' + (s.ma === 'Downtrend' ? 'red' : s.ma === 'Sideways' ? 'orange' : 'green');
+  maV.style.fontSize = '16px';
+  document.getElementById('maLabel').textContent = s.maLabel;
+  document.getElementById('maLabel').className = 'ind-sub ' + (s.maLabel === 'Negative' ? 'red' : s.maLabel === 'Stable' ? 'orange' : 'green');
 
-  // ── MA ──────────────────────────────────
-  const maValEl = document.getElementById('maVal');
-  maValEl.textContent = s.ma;
-  maValEl.className   = 'ind-value sm ' + sentimentColor(s.ma, 'trend');
-
-  const maLblEl = document.getElementById('maLabel');
-  maLblEl.textContent = s.maLabel;
-  maLblEl.className   = 'ind-sub ' + sentimentColor(s.maLabel, 'sentiment');
-
-  // ── Signal box ──────────────────────────
-  const signalBox = document.getElementById('signalBox');
-  signalBox.className = 'signal-box ' + s.signal.toLowerCase();
+  // Signal
+  const box = document.getElementById('signalBox');
+  box.className = 'signal-box ' + s.signal.toLowerCase();
   document.getElementById('signalWord').textContent = s.signal;
-  document.getElementById('confVal').textContent    = s.confidence + '%';
+  document.getElementById('confVal').textContent = s.confidence + '%';
+  const rv = document.getElementById('riskVal');
+  rv.textContent = s.risk;
+  rv.className = 'signal-meta-val ' + (s.risk === 'High' ? 'risk-high' : s.risk === 'Low' ? 'risk-low' : 'risk-med');
 
-  const riskEl = document.getElementById('riskVal');
-  riskEl.textContent = s.risk;
-  riskEl.className   = 'signal-meta-val risk-' + s.risk.toLowerCase();
+  // Why
+  const wp = document.getElementById('whyPoints');
+  wp.innerHTML = s.why.map(w => `<div class="why-point"><div class="why-dot"></div><div>${w}</div></div>`).join('');
 
-  // ── Why points ──────────────────────────
-  document.getElementById('whyPoints').innerHTML = s.why
-    .map(w => `<div class="why-point"><div class="why-dot"></div><div>${w}</div></div>`)
-    .join('');
+  // News
+  document.getElementById('newsItems').innerHTML = s.news.map(n =>
+    `<div class="news-item"><span>${n.title}</span><span class="news-time">${n.time}</span></div>`
+  ).join('');
 
-  // ── News ────────────────────────────────
-  document.getElementById('newsItems').innerHTML = s.news
-    .map(n => `
-      <div class="news-item">
-        <span>${n.title}</span>
-        <span class="news-time">${n.time}</span>
-      </div>`)
-    .join('');
-
-  // ── Chart ───────────────────────────────
+  // Chart
   drawChart(sym);
 }
 
-/**
- * Return a CSS colour class based on the value and context.
- * @param {string} value   - The indicator value/label
- * @param {string} context - Hint about what kind of value this is
- */
-function sentimentColor(value, context) {
-  const v = value.toLowerCase();
-  if (['bullish', 'uptrend', 'positive', 'strong', 'oversold'].includes(v)) return 'green';
-  if (['bearish', 'downtrend', 'negative', 'weak', 'overbought'].includes(v)) return 'red';
-  return 'orange'; // neutral, moderate, sideways, stable, etc.
-}
-
-/* ── Chart ─────────────────────────────────────────────────────────────────── */
-
-/**
- * Draw (or redraw) the price line chart using Chart.js.
- * @param {string} sym - Stock ticker
- */
 function drawChart(sym) {
   const s = STOCKS[sym];
-  const data = s.chart[currentTF];
+  const labels = currentTF === '1M'
+    ? ['W1','W2','W3','W4']
+    : currentTF === '3M'
+    ? ['Jan','Feb','Mar','Apr','May','Jun']
+    : ['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'];
 
-  // Build x-axis labels based on timeframe
-  const labels = buildChartLabels(currentTF, data.length);
+  // Adjust data points to match labels
+  const rawData = s.chart;
+  const data = labels.map((_, i) => rawData[Math.floor(i * rawData.length / labels.length)]);
 
-  // Destroy previous chart instance to avoid canvas reuse error
-  if (chartInstance) {
-    chartInstance.destroy();
-    chartInstance = null;
-  }
+  if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
 
-  const canvas = document.getElementById('stockChart');
-  const ctx    = canvas.getContext('2d');
-  const isUp   = s.change >= 0;
-  const color  = isUp ? '#22c55e' : '#ef4444';
+  const ctx = document.getElementById('stockChart').getContext('2d');
+  const isUp = s.change >= 0;
+  const color = isUp ? '#22c55e' : '#ef4444';
 
-  // Gradient fill under the line
-  const gradient = ctx.createLinearGradient(0, 0, 0, 180);
-  gradient.addColorStop(0, isUp ? 'rgba(34,197,94,0.28)' : 'rgba(239,68,68,0.28)');
+  const gradient = ctx.createLinearGradient(0, 0, 0, 160);
+  gradient.addColorStop(0, isUp ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)');
   gradient.addColorStop(1, 'rgba(0,0,0,0)');
 
   chartInstance = new Chart(ctx, {
@@ -228,196 +827,96 @@ function drawChart(sym) {
       labels,
       datasets: [{
         data,
-        borderColor:            color,
-        backgroundColor:        gradient,
-        borderWidth:            2.5,
-        fill:                   true,
-        tension:                0.4,
-        pointRadius:            0,
-        pointHoverRadius:       5,
+        borderColor: color,
+        backgroundColor: gradient,
+        borderWidth: 2.5,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 5,
         pointHoverBackgroundColor: color
       }]
     },
     options: {
       responsive: true,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#1e2940',
-          titleColor:      '#94a3b8',
-          bodyColor:       '#f1f5f9',
-          padding:         10,
-          callbacks: {
-            label: ctx => '₹' + ctx.parsed.y.toLocaleString('en-IN', { minimumFractionDigits: 2 })
-          }
-        }
-      },
+      plugins: { legend: { display: false }, tooltip: {
+        backgroundColor: '#1e2940',
+        titleColor: '#94a3b8',
+        bodyColor: '#f1f5f9',
+        padding: 10,
+        callbacks: { label: ctx => '₹' + ctx.parsed.y.toFixed(2) }
+      }},
       scales: {
-        x: {
-          grid: { color: 'rgba(30,41,64,0.5)' },
-          ticks: { color: '#64748b', font: { family: 'Sora', size: 11 } }
-        },
-        y: {
-          grid: { color: 'rgba(30,41,64,0.5)' },
-          ticks: {
-            color: '#64748b',
-            font: { family: 'Sora', size: 11 },
-            callback: v => '₹' + v.toLocaleString('en-IN')
-          }
-        }
+        x: { grid: { color: 'rgba(30,41,64,0.6)' }, ticks: { color: '#64748b', font: { family: 'Sora', size: 11 } } },
+        y: { grid: { color: 'rgba(30,41,64,0.6)' }, ticks: { color: '#64748b', font: { family: 'Sora', size: 11 }, callback: v => '₹' + v.toLocaleString('en-IN') } }
       }
     }
   });
 }
 
-/**
- * Generate x-axis labels matching the number of data points.
- * @param {string} tf    - '1M' | '3M' | '6M'
- * @param {number} count - Number of data points
- * @returns {string[]}
- */
-function buildChartLabels(tf, count) {
-  const sets = {
-    '1M': ['W1', 'W2', 'W3', 'W4'],
-    '3M': ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-    '6M': ['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']
-  };
-  const full = sets[tf] || sets['3M'];
-  // Slice to match actual data length
-  return full.slice(0, count);
+// ─── WATCHLIST ────────────────────────────────────────────────────────────────
+function renderWatchlist() {
+  const container = document.getElementById('watchlistItems');
+  document.getElementById('wlSubtitle').textContent = watchlist.length + ' stock' + (watchlist.length !== 1 ? 's' : '') + ' in your watchlist';
+  if (watchlist.length === 0) {
+    container.innerHTML = '<div style="text-align:center;color:#64748b;padding:40px 0;font-size:14px;">No stocks in watchlist.<br>Analyze a stock and tap ★ to add it.</div>';
+    return;
+  }
+  container.innerHTML = watchlist.map(sym => {
+    const s = STOCKS[sym];
+    const up = s.change >= 0;
+    return `<div class="wl-item" onclick="openStock('${sym}')">
+      <div class="wl-top">
+        <div>
+          <div class="wl-ticker">${sym}</div>
+          <div class="wl-name">${s.name}</div>
+        </div>
+        <span class="badge ${s.signal.toLowerCase()}">${s.signal}</span>
+      </div>
+      <div class="wl-bottom">
+        <div class="wl-price">₹${s.price.toFixed(2)}</div>
+        <div class="wl-change ${up ? 'green' : 'red'}">
+          ${up ? '▲' : '▼'} ${up ? '+' : ''}${s.change.toFixed(1)} (${Math.abs(s.changePct).toFixed(2)}%)
+        </div>
+      </div>
+    </div>`;
+  }).join('');
 }
 
-/* ── Star / Watchlist ──────────────────────────────────────────────────────── */
+function openStock(sym) {
+  currentStock = sym;
+  renderAnalyze(sym);
+  goPage('analyze', document.getElementById('nav-analyze'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('nav-analyze').classList.add('active');
+}
 
-// Star button click
-starBtn.addEventListener('click', () => toggleWatchlist(currentStock));
-
-/**
- * Add or remove a stock from the watchlist, then update UI.
- * @param {string} sym
- */
-function toggleWatchlist(sym) {
+// ─── STAR ────────────────────────────────────────────────────────────────────
+function toggleWatchlist() {
+  const sym = currentStock;
   const idx = watchlist.indexOf(sym);
   if (idx === -1) {
     watchlist.push(sym);
-    showToast(sym + ' added to Watchlist ★');
+    showToast(sym + ' added to Watchlist');
   } else {
     watchlist.splice(idx, 1);
     showToast(sym + ' removed from Watchlist');
   }
-  updateStarButton(sym);
-  syncProfileStats();
-}
-
-/**
- * Reflect current watchlist state on the star icon.
- * @param {string} sym
- */
-function updateStarButton(sym) {
-  const inWl  = watchlist.includes(sym);
-  const svgEl = starBtn.querySelector('svg');
-
-  starBtn.classList.toggle('starred', inWl);
-  svgEl.setAttribute('stroke', inWl ? '#facc15' : '#94a3b8');
-
-  // Also fill the polygon for a solid star when starred
-  const poly = svgEl.querySelector('polygon');
-  if (poly) poly.setAttribute('fill', inWl ? '#facc15' : 'none');
-}
-
-/* ════════════════════════════════════════════
-   WATCHLIST PAGE
-   ════════════════════════════════════════════ */
-
-/**
- * Build and inject the watchlist HTML.
- */
-function renderWatchlist() {
-  const container = document.getElementById('watchlistItems');
-  const subtitle  = document.getElementById('wlSubtitle');
-
-  subtitle.textContent = watchlist.length + ' stock' +
-                         (watchlist.length !== 1 ? 's' : '') + ' in your watchlist';
-
-  if (watchlist.length === 0) {
-    container.innerHTML = `
-      <div class="wl-empty">
-        No stocks in your watchlist.<br>
-        Analyze a stock and tap ★ to add it.
-      </div>`;
-    return;
-  }
-
-  container.innerHTML = watchlist.map(sym => {
-    const s  = STOCKS[sym];
-    const up = s.change >= 0;
-    return `
-      <div class="wl-item" data-sym="${sym}">
-        <div class="wl-top">
-          <div>
-            <div class="wl-ticker">${sym}</div>
-            <div class="wl-name">${s.name}</div>
-          </div>
-          <span class="badge ${s.signal.toLowerCase()}">${s.signal}</span>
-        </div>
-        <div class="wl-bottom">
-          <div class="wl-price">₹${s.price.toFixed(2)}</div>
-          <div class="wl-change ${up ? 'green' : 'red'}">
-            ${up ? '▲ +' : '▼ '}${Math.abs(s.change).toFixed(1)} (${Math.abs(s.changePct).toFixed(2)}%)
-          </div>
-        </div>
-      </div>`;
-  }).join('');
-
-  // Tap a watchlist item → open it in Analyze
-  container.querySelectorAll('.wl-item').forEach(item => {
-    item.addEventListener('click', () => {
-      currentStock = item.dataset.sym;
-      goPage('analyze');
-    });
-  });
-}
-
-/* ════════════════════════════════════════════
-   PROFILE PAGE
-   ════════════════════════════════════════════ */
-
-/**
- * Keep profile stats in sync with watchlist length.
- */
-function syncProfileStats() {
+  renderAnalyze(sym);
   document.getElementById('wlCount').textContent = watchlist.length;
 }
 
-/* ════════════════════════════════════════════
-   TOAST NOTIFICATION
-   ════════════════════════════════════════════ */
-
-let toastTimer = null;
-
-/**
- * Show a brief toast message at the bottom of the screen.
- * @param {string} msg
- */
+// ─── TOAST ───────────────────────────────────────────────────────────────────
 function showToast(msg) {
-  toastEl.textContent = msg;
-  toastEl.classList.add('show');
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2600);
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
 }
 
-/* ════════════════════════════════════════════
-   LOADER
-   ════════════════════════════════════════════ */
-
-function showLoader() { loaderOverlay.classList.add('show'); }
-function hideLoader() { loaderOverlay.classList.remove('show'); }
-
-/* ════════════════════════════════════════════
-   INITIALISE
-   ════════════════════════════════════════════ */
-
-// Render the Analyze page data on load (so it's ready when user navigates there)
+// ─── INIT ─────────────────────────────────────────────────────────────────────
 renderAnalyze('RELIANCE');
 renderWatchlist();
-syncProfileStats();
+</script>
+</body>
+</html>
